@@ -1,117 +1,169 @@
-import {inject} from 'aurelia-framework';
-import {BaseConfig}  from './baseConfig';
+import {inject} from 'aurelia-dependency-injection';
+import {BaseConfig}  from './base-config';
 import {Storage} from './storage';
-import authUtils from './authUtils';
+import {joinUrl, isObject, isString} from './auth-utilities';
+
 @inject(Storage, BaseConfig)
-export class Authentication{
-  constructor( storage, config){
+export class Authentication {
+  constructor(storage, config) {
     this.storage = storage;
     this.config = config.current;
-    this.tokenName = this.config.tokenPrefix ? this.config.tokenPrefix + '_' 
-                + this.config.tokenName : this.config.tokenName;
+    this.tokenName = this.config.tokenPrefix ?
+      this.config.tokenPrefix + '_' + this.config.tokenName : this.config.tokenName;
+    this.idTokenName = this.config.tokenPrefix ?
+      this.config.tokenPrefix + '_' + this.config.idTokenName : this.config.idTokenName;
   }
 
-getLoginUrl() {
-  return  this.config.baseUrl ? authUtils.joinUrl(this.config.baseUrl, this.config.loginUrl) : this.config.loginUrl;
-};
-
-getSignupUrl(){
-  return  this.config.baseUrl ? authUtils.joinUrl(this.config.baseUrl, this.config.signupUrl) : this.config.signupUrl;
-};
-
-getProfileUrl() {
-  return  this.config.baseUrl ? authUtils.joinUrl(this.config.baseUrl, this.config.profileUrl) : this.config.profileUrl;
-};
-
-getToken() {
-  return this.storage.get(this.tokenName);
-};
-
-getPayload() {
-  var token = this.storage.get(this.tokenName);
-
-  if (token && token.split('.').length === 3) {
-    var base64Url = token.split('.')[1];
-    var base64 = base64Url.replace('-', '+').replace('_', '/');
-    return JSON.parse(decodeURIComponent(escape(window.atob(base64))));
+  getLoginRoute() {
+    return this.config.loginRoute;
   }
-};
 
-setToken(response, redirect) {
+  getLoginRedirect() {
+    return this.initialUrl || this.config.loginRedirect;
+  }
 
-  var tokenName = this.tokenName;
-  var accessToken = response && response.access_token;
-  var token;
+  getLoginUrl() {
+    return this.config.baseUrl ?
+      joinUrl(this.config.baseUrl, this.config.loginUrl) : this.config.loginUrl;
+  }
 
-  if (accessToken) {
-    if (authUtils.isObject(accessToken) && authUtils.isObject(accessToken.data)) {
-      response = accessToken;
-    } else if (authUtils.isString(accessToken)) {
-      token = accessToken;
+  getSignupUrl() {
+    return this.config.baseUrl ?
+      joinUrl(this.config.baseUrl, this.config.signupUrl) : this.config.signupUrl;
+  }
+
+  getProfileUrl() {
+    return this.config.baseUrl ?
+      joinUrl(this.config.baseUrl, this.config.profileUrl) : this.config.profileUrl;
+  }
+
+  getToken() {
+    return this.storage.get(this.tokenName);
+  }
+
+  getPayload() {
+    let token = this.storage.get(this.tokenName);
+    return this.decomposeToken(token);
+  }
+
+  decomposeToken(token) {
+    if (token && token.split('.').length === 3) {
+      let base64Url = token.split('.')[1];
+      let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+
+      try {
+        return JSON.parse(decodeURIComponent(escape(window.atob(base64))));
+      } catch (error) {
+        return null;
+      }
     }
   }
 
-  if (!token && response) {
-    token = this.config.tokenRoot && response.content[this.config.tokenRoot] 
-    ? response.content[this.config.tokenRoot][this.config.tokenName] 
-    : response.content[this.config.tokenName];
+  setInitialUrl(url) {
+    this.initialUrl = url;
   }
 
-  if (!token) {
-    var tokenPath = this.config.tokenRoot 
-    ? this.config.tokenRoot + '.' + this.config.tokenName 
-    : this.config.tokenName;
-    
-    throw new Error('Expecting a token named "' + tokenPath + '" but instead got: ' + JSON.stringify(response.content));
-  }
+  setToken(response, redirect) {
+    // access token handling
+    let accessToken = response && response[this.config.responseTokenProp];
+    let tokenToStore;
 
-  
-  this.storage.set(tokenName, token);
-
-  if (this.config.loginRedirect && !redirect) {
-    window.location.href =this.config.loginRedirect;
-  } else if (redirect && authUtils.isString(redirect)) {
-    window.location.href =window.encodeURI(redirect);
-  }
-};
-
-removeToken(){
-  this.storage.remove(this.tokenName);
-}
-isAuthenticated() {
-  var token = this.storage.get(this.tokenName);
-
-  if (token) {
-    if (token.split('.').length === 3) {
-      var base64Url = token.split('.')[1];
-      var base64 = base64Url.replace('-', '+').replace('_', '/');
-      var exp = JSON.parse(window.atob(base64)).exp;
-      if (exp) {
-        return Math.round(new Date().getTime() / 1000) <= exp;
+    if (accessToken) {
+      if (isObject(accessToken) && isObject(accessToken.data)) {
+        response = accessToken;
+      } else if (isString(accessToken)) {
+        tokenToStore = accessToken;
       }
+    }
+
+    if (!tokenToStore && response) {
+      tokenToStore = this.config.tokenRoot && response[this.config.tokenRoot] ?
+        response[this.config.tokenRoot][this.config.tokenName] : response[this.config.tokenName];
+    }
+
+    if (tokenToStore) {
+      this.storage.set(this.tokenName, tokenToStore);
+    }
+
+    // id token handling
+    let idToken = response && response[this.config.responseIdTokenProp];
+
+    if (idToken) {
+      this.storage.set(this.idTokenName, idToken);
+    }
+
+    if (this.config.loginRedirect && !redirect) {
+      window.location.href = this.getLoginRedirect();
+    } else if (redirect && isString(redirect)) {
+      window.location.href = window.encodeURI(redirect);
+    }
+  }
+
+  removeToken() {
+    this.storage.remove(this.tokenName);
+  }
+
+  isAuthenticated() {
+    let token = this.storage.get(this.tokenName);
+
+    // There's no token, so user is not authenticated.
+    if (!token) {
+      return false;
+    }
+
+    // There is a token, but in a different format. Return true.
+    if (token.split('.').length !== 3) {
       return true;
     }
+
+    let exp;
+    try {
+      let base64Url = token.split('.')[1];
+      let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      exp = JSON.parse(window.atob(base64)).exp;
+    } catch (error) {
+      return false;
+    }
+
+    if (exp) {
+      return Math.round(new Date().getTime() / 1000) <= exp;
+    }
+
     return true;
   }
-  return false;
-};
 
-logout(redirect) {
-  var tokenName = this.tokenName;
-  return  new Promise((resolve,reject)=>{
-  this.storage.remove(tokenName);
-  //var this.config = this.this.config;
-  if (this.config.logoutRedirect && !redirect) {
-    window.location.href = this.config.logoutRedirect;
-  }
-  else if (authUtils.isString(redirect)) {
-    //window.location.href =redirect;
-    //this.router.navigate(redirect);
-    window.location.href = redirect;
+  logout(redirect) {
+    return new Promise(resolve => {
+      this.storage.remove(this.tokenName);
 
+      if (this.config.logoutRedirect && !redirect) {
+        window.location.href = this.config.logoutRedirect;
+      } else if (isString(redirect)) {
+        window.location.href = redirect;
+      }
+
+      resolve();
+    });
   }
-  resolve();
-});
-  
-};
+
+  get tokenInterceptor() {
+    let config = this.config;
+    let storage = this.storage;
+    let auth = this;
+    return {
+      request(request) {
+        if (auth.isAuthenticated() && config.httpInterceptor) {
+          let tokenName = config.tokenPrefix ? `${config.tokenPrefix}_${config.tokenName}` : config.tokenName;
+          let token = storage.get(tokenName);
+
+          if (config.authHeader && config.authToken) {
+            token = `${config.authToken} ${token}`;
+          }
+
+          request.headers.set(config.authHeader, token);
+        }
+        return request;
+      }
+    };
+  }
 }

@@ -1,127 +1,152 @@
-import {inject} from 'aurelia-framework';
-import authUtils from './authUtils';
+import {inject} from 'aurelia-dependency-injection';
+import {extend, forEach, isFunction, isString, joinUrl, camelCase, status} from './auth-utilities';
 import {Storage} from './storage';
 import {Popup} from './popup';
-import {BaseConfig} from './baseConfig';
-import { HttpClient} from 'aurelia-http-client';
+import {BaseConfig} from './base-config';
+import {Authentication} from './authentication';
+import {HttpClient, json} from 'aurelia-fetch-client';
 
-@inject(Storage, Popup, HttpClient, BaseConfig )
+@inject(Storage, Popup, HttpClient, BaseConfig, Authentication)
 export class OAuth2 {
-    constructor(storage, popup, http , config) {
-        this.storage = storage;
-        this.config = config.current;
-        this.popup = popup;
-        this.http = http;
-        this.defaults = {
-            url: null,
-            name: null,
-            state: null,
-            scope: null,
-            scopeDelimiter: null,
-            redirectUri: null,
-            popupOptions: null,
-            authorizationEndpoint: null,
-            responseParams: null,
-            requiredUrlParams: null,
-            optionalUrlParams: null,
-            defaultUrlParams: ['response_type', 'client_id', 'redirect_uri'],
-            responseType: 'code'
-        };
+  constructor(storage, popup, http, config, auth) {
+    this.storage = storage;
+    this.config = config.current;
+    this.popup = popup;
+    this.http = http;
+    this.auth = auth;
+    this.defaults = {
+      url: null,
+      name: null,
+      state: null,
+      scope: null,
+      scopeDelimiter: null,
+      redirectUri: null,
+      popupOptions: null,
+      authorizationEndpoint: null,
+      responseParams: null,
+      requiredUrlParams: null,
+      optionalUrlParams: null,
+      defaultUrlParams: ['response_type', 'client_id', 'redirect_uri'],
+      responseType: 'code'
+    };
+  }
+
+  open(options, userData) {
+    let current = extend({}, this.defaults, options);
+
+    //state handling
+    let stateName = current.name + '_state';
+
+    if (isFunction(current.state)) {
+      this.storage.set(stateName, current.state());
+    } else if (isString(current.state)) {
+      this.storage.set(stateName, current.state);
     }
 
-    open(options, userData) {
-        authUtils.extend(this.defaults, options);
-        var stateName = this.defaults.name + '_state';
+    //nonce handling
+    let nonceName = current.name + '_nonce';
 
-        if (authUtils.isFunction(this.defaults.state)) {
-            this.storage.set(stateName, this.defaults.state());
-        } else if (authUtils.isString(this.defaults.state)) {
-            this.storage.set(stateName, this.defaults.state);
+    if (isFunction(current.nonce)) {
+      this.storage.set(nonceName, current.nonce());
+    } else if (isString(current.nonce)) {
+      this.storage.set(nonceName, current.nonce);
+    }
+
+    let url = current.authorizationEndpoint + '?' + this.buildQueryString(current);
+
+    let openPopup;
+    if (this.config.platform === 'mobile') {
+      openPopup = this.popup.open(url, current.name, current.popupOptions, current.redirectUri).eventListener(current.redirectUri);
+    } else {
+      openPopup = this.popup.open(url, current.name, current.popupOptions, current.redirectUri).pollPopup();
+    }
+
+    return openPopup
+      .then(oauthData => {
+        if (oauthData.state && oauthData.state !== this.storage.get(stateName)) {
+          return Promise.reject('OAuth 2.0 state parameter mismatch.');
         }
 
-        var url = this.defaults.authorizationEndpoint + '?' + this.buildQueryString();
+        if (current.responseType.toUpperCase().indexOf('TOKEN') !== -1) { //meaning implicit flow or hybrid flow
+          if (!this.verifyIdToken(oauthData, current.name)) {
+            return Promise.reject('OAuth 2.0 Nonce parameter mismatch.');
+          }
 
-        var openPopup;
-            if (this.config.platform === 'mobile') {
-              openPopup = this.popup.open(url, this.defaults.name, this.defaults.popupOptions, this.defaults.redirectUri).eventListener(this.defaults.redirectUri);
-            } else {
-              openPopup = this.popup.open(url, this.defaults.name, this.defaults.popupOptions, this.defaults.redirectUri).pollPopup();
-            }
-
-        var self = this;
-        return openPopup
-            .then((oauthData) => {
-                if (self.defaults.responseType === 'token') {
-                    return oauthData;
-                }
-                if (oauthData.state && oauthData.state !== self.storage.get(stateName)) {
-                    return Promise.reject('OAuth 2.0 state parameter mismatch.');
-                }
-                return self.exchangeForToken(oauthData, userData);
-            });
-    };
-
-    exchangeForToken(oauthData, userData) {
-        var data = authUtils.extend({}, userData, {
-            code: oauthData.code,
-            clientId: this.defaults.clientId,
-            redirectUri: this.defaults.redirectUri
-        });
-
-        if (oauthData.state) {
-            data.state = oauthData.state;
+          return oauthData;
         }
 
-        authUtils.forEach(this.defaults.responseParams, function(param) {
-            data[param] = oauthData[param];
-        });
+        return this.exchangeForToken(oauthData, userData, current); //responseType is authorization code only (no token nor id_token)
+      });
+  }
 
-        var exchangeForTokenUrl = this.config.baseUrl ? authUtils.joinUrl(this.config.baseUrl, this.defaults.url) : this.defaults.url;
-      
+  verifyIdToken(oauthData, providerName) {
+    let idToken = oauthData && oauthData[this.config.responseIdTokenProp];
+    if (!idToken) return true;
+    let idTokenObject = this.auth.decomposeToken(idToken);
+    if (!idTokenObject) return true;
+    let nonceFromToken = idTokenObject.nonce;
+    if (!nonceFromToken) return true;
+    let nonceInStorage = this.storage.get(providerName + '_nonce');
+    if (nonceFromToken !== nonceInStorage) {
+      return false;
+    }
+    return true;
+  }
 
-            return this.http.createRequest(exchangeForTokenUrl)
-                .asPost()
-                .withContent(data)
-                .withCredentials(this.config.withCredentials)
-                .send()
-                .then(response => {
-                    return response;
-                })
-                .catch(err => {
-                    console.log("error :" + err.content.message);
-                    throw err;
-                });
-    };
+  exchangeForToken(oauthData, userData, current) {
+    let data = extend({}, userData, {
+      code: oauthData.code,
+      clientId: current.clientId,
+      redirectUri: current.redirectUri
+    });
 
-    buildQueryString() {
-        var keyValuePairs = [];
-        var urlParams = ['defaultUrlParams', 'requiredUrlParams', 'optionalUrlParams'];
-        authUtils.forEach(urlParams, (params) => {
+    if (oauthData.state) {
+      data.state = oauthData.state;
+    }
 
-            authUtils.forEach(this.defaults[params], (paramName) => {
-                var camelizedName = authUtils.camelCase(paramName);
-                var paramValue = authUtils.isFunction(this.defaults[paramName]) ? this.defaults[paramName]() : this.defaults[camelizedName];
+    forEach(current.responseParams, param => data[param] = oauthData[param]);
 
-                if (paramName === 'state') {
-                    var stateName = this.defaults.name + '_state';
-                    paramValue = encodeURIComponent(this.storage.get(stateName));
-                }
+    let exchangeForTokenUrl = this.config.baseUrl ? joinUrl(this.config.baseUrl, current.url) : current.url;
+    let credentials         = this.config.withCredentials ? 'include' : 'same-origin';
 
-                if (paramName === 'scope' && Array.isArray(paramValue)) {
-                    paramValue = paramValue.join(this.defaults.scopeDelimiter);
+    return this.http.fetch(exchangeForTokenUrl, {
+      method: 'post',
+      body: json(data),
+      credentials: credentials
+    }).then(status);
+  }
 
-                    if (this.defaults.scopePrefix) {
-                        paramValue = [this.defaults.scopePrefix, paramValue].join(this.defaults.scopeDelimiter);
-                    }
-                }
+  buildQueryString(current) {
+    let keyValuePairs = [];
+    let urlParams     = ['defaultUrlParams', 'requiredUrlParams', 'optionalUrlParams'];
 
-                keyValuePairs.push([paramName, paramValue]);
-            });
-        });
+    forEach(urlParams, params => {
+      forEach(current[params], paramName => {
+        let camelizedName = camelCase(paramName);
+        let paramValue    = isFunction(current[paramName]) ? current[paramName]() : current[camelizedName];
 
-        return keyValuePairs.map(function(pair) {
-            return pair.join('=');
-        }).join('&');
-    };
+        if (paramName === 'state') {
+          let stateName = current.name + '_state';
+          paramValue    = encodeURIComponent(this.storage.get(stateName));
+        }
 
+        if (paramName === 'nonce') {
+          let nonceName = current.name + '_nonce';
+          paramValue    = encodeURIComponent(this.storage.get(nonceName));
+        }
+
+        if (paramName === 'scope' && Array.isArray(paramValue)) {
+          paramValue = paramValue.join(current.scopeDelimiter);
+
+          if (current.scopePrefix) {
+            paramValue = [current.scopePrefix, paramValue].join(current.scopeDelimiter);
+          }
+        }
+
+        keyValuePairs.push([paramName, paramValue]);
+      });
+    });
+
+    return keyValuePairs.map(pair => pair.join('=')).join('&');
+  }
 }

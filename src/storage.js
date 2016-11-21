@@ -1,79 +1,25 @@
-import {inject} from 'aurelia-framework';
-import {BaseConfig} from './baseConfig';
+import {inject} from 'aurelia-dependency-injection';
+import {BaseConfig} from './base-config';
 
 @inject(BaseConfig)
-export class Storage{
-	constructor(config){
-		this.config = config.current;
-	}
+export class Storage {
+  constructor(config) {
+    this.config = config.current;
+    this.storage = this._getStorage(this.config.storage);
+  }
 
-	get(key){
-		switch (this.config.storage) {
-			case 'localStorage':
-			if ('localStorage' in window && window['localStorage'] !== null) {
-				return  localStorage.getItem(key); 
-			} else {
-				console.warn('Warning: Local Storage is disabled or unavailable');
-				return undefined;
-			}
-			break;
+  get(key) { return this.storage.getItem(key); }
+  set(key, value) { return this.storage.setItem(key, value); }
+  remove(key) { return this.storage.removeItem(key); }
+  _getStorage(type) {
+    if (type === 'localStorage') {
+      if ('localStorage' in window && window.localStorage !== null) return localStorage;
+      throw new Error('Local Storage is disabled or unavailable.');
+    } else if (type === 'sessionStorage') {
+      if ('sessionStorage' in window && window.sessionStorage !== null) return sessionStorage;
+      throw new Error('Session Storage is disabled or unavailable.');
+    }
 
-			case 'sessionStorage':
-			if ('sessionStorage' in window && window['sessionStorage'] !== null) {
-				return  sessionStorage.getItem(key); 
-			} else {
-				console.warn('Warning: Session Storage is disabled or unavailable.  will not work correctly.');
-				return undefined;
-			}
-			break;
-		}
-	}
-
-	set(key, value){
-		switch (this.config.storage) {
-			case 'localStorage':
-			if ('localStorage' in window && window['localStorage'] !== null) {
-				return localStorage.setItem(key, value);
-
-			} else {
-				console.warn('Warning: Local Storage is disabled or unavailable.  will not work correctly.');
-				return undefined;
-			}
-			break;
-
-			case 'sessionStorage':
-			if ('sessionStorage' in window && window['sessionStorage'] !== null) {
-				return sessionStorage.setItem(key, value);
-			} else {
-				console.warn('Warning: Session Storage is disabled or unavailable.  will not work correctly.');
-				return undefined;
-			}
-			break;
-		}
-	}
-
-	remove(key){
-		switch (this.config.storage) {
-			case 'localStorage':
-			if ('localStorage' in window && window['localStorage'] !== null) {
-				return localStorage.removeItem(key);
-			} else {
-				console.warn('Warning: Local Storage is disabled or unavailable.  will not work correctly.');
-				return undefined;
-			}
-			break;
-
-			case 'sessionStorage':
-			if ('sessionStorage' in window && window['sessionStorage'] !== null) {
-				return  sessionStorage.removeItem(key);
-
-			} else {
-				console.warn('Warning: Session Storage is disabled or unavailable.  will not work correctly.');
-				return undefined;
-			}
-			break;
-		}
-	}
-
-
+    throw new Error('Invalid storage type specified: ' + type);
+  }
 }

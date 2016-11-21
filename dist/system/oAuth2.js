@@ -1,153 +1,194 @@
-System.register(['aurelia-framework', './authUtils', './storage', './popup', './baseConfig', 'aurelia-http-client'], function (_export) {
-    'use strict';
+'use strict';
 
-    var inject, authUtils, Storage, Popup, BaseConfig, HttpClient, OAuth2;
+System.register(['aurelia-dependency-injection', './auth-utilities', './storage', './popup', './base-config', './authentication', 'aurelia-fetch-client'], function (_export, _context) {
+  "use strict";
 
-    var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+  var inject, extend, forEach, isFunction, isString, joinUrl, camelCase, status, Storage, Popup, BaseConfig, Authentication, HttpClient, json, _dec, _class, OAuth2;
 
-    function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } }
+  function _classCallCheck(instance, Constructor) {
+    if (!(instance instanceof Constructor)) {
+      throw new TypeError("Cannot call a class as a function");
+    }
+  }
 
-    return {
-        setters: [function (_aureliaFramework) {
-            inject = _aureliaFramework.inject;
-        }, function (_authUtils) {
-            authUtils = _authUtils['default'];
-        }, function (_storage) {
-            Storage = _storage.Storage;
-        }, function (_popup) {
-            Popup = _popup.Popup;
-        }, function (_baseConfig) {
-            BaseConfig = _baseConfig.BaseConfig;
-        }, function (_aureliaHttpClient) {
-            HttpClient = _aureliaHttpClient.HttpClient;
-        }],
-        execute: function () {
-            OAuth2 = (function () {
-                function OAuth2(storage, popup, http, config) {
-                    _classCallCheck(this, _OAuth2);
+  return {
+    setters: [function (_aureliaDependencyInjection) {
+      inject = _aureliaDependencyInjection.inject;
+    }, function (_authUtilities) {
+      extend = _authUtilities.extend;
+      forEach = _authUtilities.forEach;
+      isFunction = _authUtilities.isFunction;
+      isString = _authUtilities.isString;
+      joinUrl = _authUtilities.joinUrl;
+      camelCase = _authUtilities.camelCase;
+      status = _authUtilities.status;
+    }, function (_storage) {
+      Storage = _storage.Storage;
+    }, function (_popup) {
+      Popup = _popup.Popup;
+    }, function (_baseConfig) {
+      BaseConfig = _baseConfig.BaseConfig;
+    }, function (_authentication) {
+      Authentication = _authentication.Authentication;
+    }, function (_aureliaFetchClient) {
+      HttpClient = _aureliaFetchClient.HttpClient;
+      json = _aureliaFetchClient.json;
+    }],
+    execute: function () {
+      _export('OAuth2', OAuth2 = (_dec = inject(Storage, Popup, HttpClient, BaseConfig, Authentication), _dec(_class = function () {
+        function OAuth2(storage, popup, http, config, auth) {
+          _classCallCheck(this, OAuth2);
 
-                    this.storage = storage;
-                    this.config = config.current;
-                    this.popup = popup;
-                    this.http = http;
-                    this.defaults = {
-                        url: null,
-                        name: null,
-                        state: null,
-                        scope: null,
-                        scopeDelimiter: null,
-                        redirectUri: null,
-                        popupOptions: null,
-                        authorizationEndpoint: null,
-                        responseParams: null,
-                        requiredUrlParams: null,
-                        optionalUrlParams: null,
-                        defaultUrlParams: ['response_type', 'client_id', 'redirect_uri'],
-                        responseType: 'code'
-                    };
-                }
-
-                var _OAuth2 = OAuth2;
-
-                _createClass(_OAuth2, [{
-                    key: 'open',
-                    value: function open(options, userData) {
-                        authUtils.extend(this.defaults, options);
-                        var stateName = this.defaults.name + '_state';
-
-                        if (authUtils.isFunction(this.defaults.state)) {
-                            this.storage.set(stateName, this.defaults.state());
-                        } else if (authUtils.isString(this.defaults.state)) {
-                            this.storage.set(stateName, this.defaults.state);
-                        }
-
-                        var url = this.defaults.authorizationEndpoint + '?' + this.buildQueryString();
-
-                        var openPopup;
-                        if (this.config.platform === 'mobile') {
-                            openPopup = this.popup.open(url, this.defaults.name, this.defaults.popupOptions, this.defaults.redirectUri).eventListener(this.defaults.redirectUri);
-                        } else {
-                            openPopup = this.popup.open(url, this.defaults.name, this.defaults.popupOptions, this.defaults.redirectUri).pollPopup();
-                        }
-
-                        var self = this;
-                        return openPopup.then(function (oauthData) {
-                            if (self.defaults.responseType === 'token') {
-                                return oauthData;
-                            }
-                            if (oauthData.state && oauthData.state !== self.storage.get(stateName)) {
-                                return Promise.reject('OAuth 2.0 state parameter mismatch.');
-                            }
-                            return self.exchangeForToken(oauthData, userData);
-                        });
-                    }
-                }, {
-                    key: 'exchangeForToken',
-                    value: function exchangeForToken(oauthData, userData) {
-                        var data = authUtils.extend({}, userData, {
-                            code: oauthData.code,
-                            clientId: this.defaults.clientId,
-                            redirectUri: this.defaults.redirectUri
-                        });
-
-                        if (oauthData.state) {
-                            data.state = oauthData.state;
-                        }
-
-                        authUtils.forEach(this.defaults.responseParams, function (param) {
-                            data[param] = oauthData[param];
-                        });
-
-                        var exchangeForTokenUrl = this.config.baseUrl ? authUtils.joinUrl(this.config.baseUrl, this.defaults.url) : this.defaults.url;
-
-                        return this.http.createRequest(exchangeForTokenUrl).asPost().withContent(data).withCredentials(this.config.withCredentials).send().then(function (response) {
-                            return response;
-                        })['catch'](function (err) {
-                            console.log('error :' + err.content.message);
-                            throw err;
-                        });
-                    }
-                }, {
-                    key: 'buildQueryString',
-                    value: function buildQueryString() {
-                        var _this = this;
-
-                        var keyValuePairs = [];
-                        var urlParams = ['defaultUrlParams', 'requiredUrlParams', 'optionalUrlParams'];
-                        authUtils.forEach(urlParams, function (params) {
-
-                            authUtils.forEach(_this.defaults[params], function (paramName) {
-                                var camelizedName = authUtils.camelCase(paramName);
-                                var paramValue = authUtils.isFunction(_this.defaults[paramName]) ? _this.defaults[paramName]() : _this.defaults[camelizedName];
-
-                                if (paramName === 'state') {
-                                    var stateName = _this.defaults.name + '_state';
-                                    paramValue = encodeURIComponent(_this.storage.get(stateName));
-                                }
-
-                                if (paramName === 'scope' && Array.isArray(paramValue)) {
-                                    paramValue = paramValue.join(_this.defaults.scopeDelimiter);
-
-                                    if (_this.defaults.scopePrefix) {
-                                        paramValue = [_this.defaults.scopePrefix, paramValue].join(_this.defaults.scopeDelimiter);
-                                    }
-                                }
-
-                                keyValuePairs.push([paramName, paramValue]);
-                            });
-                        });
-
-                        return keyValuePairs.map(function (pair) {
-                            return pair.join('=');
-                        }).join('&');
-                    }
-                }]);
-
-                OAuth2 = inject(Storage, Popup, HttpClient, BaseConfig)(OAuth2) || OAuth2;
-                return OAuth2;
-            })();
-
-            _export('OAuth2', OAuth2);
+          this.storage = storage;
+          this.config = config.current;
+          this.popup = popup;
+          this.http = http;
+          this.auth = auth;
+          this.defaults = {
+            url: null,
+            name: null,
+            state: null,
+            scope: null,
+            scopeDelimiter: null,
+            redirectUri: null,
+            popupOptions: null,
+            authorizationEndpoint: null,
+            responseParams: null,
+            requiredUrlParams: null,
+            optionalUrlParams: null,
+            defaultUrlParams: ['response_type', 'client_id', 'redirect_uri'],
+            responseType: 'code'
+          };
         }
-    };
+
+        OAuth2.prototype.open = function open(options, userData) {
+          var _this = this;
+
+          var current = extend({}, this.defaults, options);
+
+          var stateName = current.name + '_state';
+
+          if (isFunction(current.state)) {
+            this.storage.set(stateName, current.state());
+          } else if (isString(current.state)) {
+            this.storage.set(stateName, current.state);
+          }
+
+          var nonceName = current.name + '_nonce';
+
+          if (isFunction(current.nonce)) {
+            this.storage.set(nonceName, current.nonce());
+          } else if (isString(current.nonce)) {
+            this.storage.set(nonceName, current.nonce);
+          }
+
+          var url = current.authorizationEndpoint + '?' + this.buildQueryString(current);
+
+          var openPopup = void 0;
+          if (this.config.platform === 'mobile') {
+            openPopup = this.popup.open(url, current.name, current.popupOptions, current.redirectUri).eventListener(current.redirectUri);
+          } else {
+            openPopup = this.popup.open(url, current.name, current.popupOptions, current.redirectUri).pollPopup();
+          }
+
+          return openPopup.then(function (oauthData) {
+            if (oauthData.state && oauthData.state !== _this.storage.get(stateName)) {
+              return Promise.reject('OAuth 2.0 state parameter mismatch.');
+            }
+
+            if (current.responseType.toUpperCase().indexOf('TOKEN') !== -1) {
+              if (!_this.verifyIdToken(oauthData, current.name)) {
+                return Promise.reject('OAuth 2.0 Nonce parameter mismatch.');
+              }
+
+              return oauthData;
+            }
+
+            return _this.exchangeForToken(oauthData, userData, current);
+          });
+        };
+
+        OAuth2.prototype.verifyIdToken = function verifyIdToken(oauthData, providerName) {
+          var idToken = oauthData && oauthData[this.config.responseIdTokenProp];
+          if (!idToken) return true;
+          var idTokenObject = this.auth.decomposeToken(idToken);
+          if (!idTokenObject) return true;
+          var nonceFromToken = idTokenObject.nonce;
+          if (!nonceFromToken) return true;
+          var nonceInStorage = this.storage.get(providerName + '_nonce');
+          if (nonceFromToken !== nonceInStorage) {
+            return false;
+          }
+          return true;
+        };
+
+        OAuth2.prototype.exchangeForToken = function exchangeForToken(oauthData, userData, current) {
+          var data = extend({}, userData, {
+            code: oauthData.code,
+            clientId: current.clientId,
+            redirectUri: current.redirectUri
+          });
+
+          if (oauthData.state) {
+            data.state = oauthData.state;
+          }
+
+          forEach(current.responseParams, function (param) {
+            return data[param] = oauthData[param];
+          });
+
+          var exchangeForTokenUrl = this.config.baseUrl ? joinUrl(this.config.baseUrl, current.url) : current.url;
+          var credentials = this.config.withCredentials ? 'include' : 'same-origin';
+
+          return this.http.fetch(exchangeForTokenUrl, {
+            method: 'post',
+            body: json(data),
+            credentials: credentials
+          }).then(status);
+        };
+
+        OAuth2.prototype.buildQueryString = function buildQueryString(current) {
+          var _this2 = this;
+
+          var keyValuePairs = [];
+          var urlParams = ['defaultUrlParams', 'requiredUrlParams', 'optionalUrlParams'];
+
+          forEach(urlParams, function (params) {
+            forEach(current[params], function (paramName) {
+              var camelizedName = camelCase(paramName);
+              var paramValue = isFunction(current[paramName]) ? current[paramName]() : current[camelizedName];
+
+              if (paramName === 'state') {
+                var stateName = current.name + '_state';
+                paramValue = encodeURIComponent(_this2.storage.get(stateName));
+              }
+
+              if (paramName === 'nonce') {
+                var nonceName = current.name + '_nonce';
+                paramValue = encodeURIComponent(_this2.storage.get(nonceName));
+              }
+
+              if (paramName === 'scope' && Array.isArray(paramValue)) {
+                paramValue = paramValue.join(current.scopeDelimiter);
+
+                if (current.scopePrefix) {
+                  paramValue = [current.scopePrefix, paramValue].join(current.scopeDelimiter);
+                }
+              }
+
+              keyValuePairs.push([paramName, paramValue]);
+            });
+          });
+
+          return keyValuePairs.map(function (pair) {
+            return pair.join('=');
+          }).join('&');
+        };
+
+        return OAuth2;
+      }()) || _class));
+
+      _export('OAuth2', OAuth2);
+    }
+  };
 });

@@ -1,104 +1,59 @@
-System.register(['aurelia-framework', './baseConfig'], function (_export) {
-	'use strict';
+'use strict';
 
-	var inject, BaseConfig, Storage;
+System.register(['aurelia-dependency-injection', './base-config'], function (_export, _context) {
+  "use strict";
 
-	var _createClass = (function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ('value' in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; })();
+  var inject, BaseConfig, _dec, _class, Storage;
 
-	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError('Cannot call a class as a function'); } }
+  function _classCallCheck(instance, Constructor) {
+    if (!(instance instanceof Constructor)) {
+      throw new TypeError("Cannot call a class as a function");
+    }
+  }
 
-	return {
-		setters: [function (_aureliaFramework) {
-			inject = _aureliaFramework.inject;
-		}, function (_baseConfig) {
-			BaseConfig = _baseConfig.BaseConfig;
-		}],
-		execute: function () {
-			Storage = (function () {
-				function Storage(config) {
-					_classCallCheck(this, _Storage);
+  return {
+    setters: [function (_aureliaDependencyInjection) {
+      inject = _aureliaDependencyInjection.inject;
+    }, function (_baseConfig) {
+      BaseConfig = _baseConfig.BaseConfig;
+    }],
+    execute: function () {
+      _export('Storage', Storage = (_dec = inject(BaseConfig), _dec(_class = function () {
+        function Storage(config) {
+          _classCallCheck(this, Storage);
 
-					this.config = config.current;
-				}
+          this.config = config.current;
+          this.storage = this._getStorage(this.config.storage);
+        }
 
-				var _Storage = Storage;
+        Storage.prototype.get = function get(key) {
+          return this.storage.getItem(key);
+        };
 
-				_createClass(_Storage, [{
-					key: 'get',
-					value: function get(key) {
-						switch (this.config.storage) {
-							case 'localStorage':
-								if ('localStorage' in window && window['localStorage'] !== null) {
-									return localStorage.getItem(key);
-								} else {
-									console.warn('Warning: Local Storage is disabled or unavailable');
-									return undefined;
-								}
-								break;
+        Storage.prototype.set = function set(key, value) {
+          return this.storage.setItem(key, value);
+        };
 
-							case 'sessionStorage':
-								if ('sessionStorage' in window && window['sessionStorage'] !== null) {
-									return sessionStorage.getItem(key);
-								} else {
-									console.warn('Warning: Session Storage is disabled or unavailable.  will not work correctly.');
-									return undefined;
-								}
-								break;
-						}
-					}
-				}, {
-					key: 'set',
-					value: function set(key, value) {
-						switch (this.config.storage) {
-							case 'localStorage':
-								if ('localStorage' in window && window['localStorage'] !== null) {
-									return localStorage.setItem(key, value);
-								} else {
-									console.warn('Warning: Local Storage is disabled or unavailable.  will not work correctly.');
-									return undefined;
-								}
-								break;
+        Storage.prototype.remove = function remove(key) {
+          return this.storage.removeItem(key);
+        };
 
-							case 'sessionStorage':
-								if ('sessionStorage' in window && window['sessionStorage'] !== null) {
-									return sessionStorage.setItem(key, value);
-								} else {
-									console.warn('Warning: Session Storage is disabled or unavailable.  will not work correctly.');
-									return undefined;
-								}
-								break;
-						}
-					}
-				}, {
-					key: 'remove',
-					value: function remove(key) {
-						switch (this.config.storage) {
-							case 'localStorage':
-								if ('localStorage' in window && window['localStorage'] !== null) {
-									return localStorage.removeItem(key);
-								} else {
-									console.warn('Warning: Local Storage is disabled or unavailable.  will not work correctly.');
-									return undefined;
-								}
-								break;
+        Storage.prototype._getStorage = function _getStorage(type) {
+          if (type === 'localStorage') {
+            if ('localStorage' in window && window.localStorage !== null) return localStorage;
+            throw new Error('Local Storage is disabled or unavailable.');
+          } else if (type === 'sessionStorage') {
+            if ('sessionStorage' in window && window.sessionStorage !== null) return sessionStorage;
+            throw new Error('Session Storage is disabled or unavailable.');
+          }
 
-							case 'sessionStorage':
-								if ('sessionStorage' in window && window['sessionStorage'] !== null) {
-									return sessionStorage.removeItem(key);
-								} else {
-									console.warn('Warning: Session Storage is disabled or unavailable.  will not work correctly.');
-									return undefined;
-								}
-								break;
-						}
-					}
-				}]);
+          throw new Error('Invalid storage type specified: ' + type);
+        };
 
-				Storage = inject(BaseConfig)(Storage) || Storage;
-				return Storage;
-			})();
+        return Storage;
+      }()) || _class));
 
-			_export('Storage', Storage);
-		}
-	};
+      _export('Storage', Storage);
+    }
+  };
 });
